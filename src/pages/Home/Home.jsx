@@ -72,22 +72,22 @@ const Home = () => {
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (currentUser) => {
             if (currentUser) {
-                // Get role from localStorage
+                // Get stored user data from localStorage (may have updated photoURL from Cloudinary)
                 const storedUser = localStorage.getItem("user");
-                const userRole = storedUser ? JSON.parse(storedUser).role : "user";
+                const storedUserData = storedUser ? JSON.parse(storedUser) : {};
 
-                // Create updated user object with fresh data from Firebase
+                // Create updated user object - prioritize localStorage photoURL (Cloudinary) over Firebase Auth
                 const updatedUser = {
                     uid: currentUser.uid,
                     email: currentUser.email,
-                    displayName: currentUser.displayName || "User",
-                    photoURL: currentUser.photoURL || null,
-                    role: userRole
+                    displayName: storedUserData.displayName || currentUser.displayName || "User",
+                    photoURL: storedUserData.photoURL || currentUser.photoURL || null,
+                    role: storedUserData.role || "user"
                 };
 
                 // Debug log
                 console.log("Home - User synced:", updatedUser);
-                console.log("PhotoURL:", currentUser.photoURL);
+                console.log("PhotoURL (prioritized from localStorage):", updatedUser.photoURL);
 
                 // Update localStorage and state
                 localStorage.setItem("user", JSON.stringify(updatedUser));

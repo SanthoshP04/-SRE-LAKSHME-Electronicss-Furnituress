@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Mail, Lock } from "lucide-react";
-import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, sendEmailVerification } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../../firebase/firebaseConfig";
+import API_URL from "../../config/api";
 
 const Register = () => {
     const navigate = useNavigate();
@@ -42,6 +43,15 @@ const Register = () => {
         return newErrors;
     };
 
+    // Send OTP via backend
+    const sendOTP = async (email, fullName, uid = null) => {
+        const response = await fetch(`${API_URL}/api/send-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, fullName, uid })
+        });
+        return response.json();
+    };
 
     // ---------------- GOOGLE SIGN-IN ----------------
     const handleGoogleSignIn = async () => {
@@ -105,41 +115,38 @@ const Register = () => {
                         provider: "google",
                         createdAt: serverTimestamp(),
                         role: "user",
-                        customEmailVerified: false  // Our custom verification field
+                        customEmailVerified: false
                     });
                 }
             }
 
-            // Check our CUSTOM email verification status (not Google's)
-            // Get the latest user data from Firestore to check custom verification
+            // Check our CUSTOM email verification status
             const latestUserDoc = await getDoc(userDocRef);
             const latestUserData = latestUserDoc.data();
             const isCustomVerified = latestUserData?.customEmailVerified || false;
 
             if (!isCustomVerified) {
-                // Send verification email (even if Google says email is verified)
-                await sendEmailVerification(user, {
-                    url: window.location.origin + '/login',
-                    handleCodeInApp: false
-                });
+                // Send OTP via backend with uid
+                await sendOTP(user.email, user.displayName || "User", user.uid);
 
                 // Sign out the user
                 await auth.signOut();
 
-                // Show message and redirect to login
-                const message = isNewUser
-                    ? "Account created! Please check your email (including spam folder) to verify your account before logging in."
-                    : "Please verify your email before logging in. A verification email has been sent. Check your spam folder if you don't see it.";
-
-                alert(message);
-                navigate("/", { replace: true });
+                // Redirect to OTP verification page with uid
+                navigate("/verify-otp", {
+                    replace: true,
+                    state: {
+                        email: user.email,
+                        fullName: user.displayName || "User",
+                        uid: user.uid
+                    }
+                });
                 return;
             }
 
             // Email is verified - proceed with login
             const token = await user.getIdToken();
 
-            // Store token and user info
             localStorage.setItem("token", token);
             localStorage.setItem("user", JSON.stringify({
                 uid: user.uid,
@@ -149,7 +156,6 @@ const Register = () => {
                 role: userRole
             }));
 
-            // Redirect based on role
             if (userRole === "admin") {
                 navigate("/admin-home", { replace: true });
             } else {
@@ -199,7 +205,6 @@ const Register = () => {
             const emailSnapshot = await getDocs(emailQuery);
 
             if (!emailSnapshot.empty) {
-                // Account already exists with this email (could be Google sign-in)
                 const existingUser = emailSnapshot.docs[0].data();
                 const provider = existingUser.provider || "another method";
                 setErrors({
@@ -222,33 +227,32 @@ const Register = () => {
                 displayName: formData.fullName
             });
 
-            // Store user data in Firestore
-            await setDoc(doc(db, "users", user.uid), {
-                uid: user.uid,
-                fullName: formData.fullName,
-                displayName: formData.fullName,
-                email: formData.email,
-                provider: "email",
-                createdAt: serverTimestamp(),
-                role: "user",
-                customEmailVerified: false  // Our custom verification field
-            });
+            // Don't store user data in Firestore yet - it will be stored after OTP verification
+            // The backend will create the user document when OTP is verified
 
-            // Send verification email
-            await sendEmailVerification(user, {
-                url: window.location.origin + '/login',
-                handleCodeInApp: false
-            });
+            // Send OTP via backend (pass UID so Firestore doc uses same ID as Auth user)
+            const otpResult = await sendOTP(formData.email, formData.fullName, user.uid);
+
+            if (!otpResult.success) {
+                setErrors({ general: "Failed to send verification code. Please try again." });
+                setLoading(false);
+                return;
+            }
 
             // Sign out the user (don't auto-login)
             await auth.signOut();
 
-            // Show success message and redirect to login
-            alert("Registration successful! Please check your email (including spam folder) to verify your account before logging in.");
-            navigate("/", { replace: true });
+            // Redirect to OTP verification page with uid
+            navigate("/verify-otp", {
+                replace: true,
+                state: {
+                    email: formData.email,
+                    fullName: formData.fullName,
+                    uid: user.uid
+                }
+            });
 
         } catch (error) {
-            // Handle Firebase auth errors
             let errorMessage = "Registration failed";
             switch (error.code) {
                 case "auth/email-already-in-use":
@@ -441,7 +445,7 @@ const Register = () => {
                     Already have an account?{" "}
                     <button
                         onClick={() => navigate("/")}
-                        className="font-medium text-white hover:underline"
+                        className="font-medium text-indigo-600 hover:underline"
                     >
                         Log in
                     </button>

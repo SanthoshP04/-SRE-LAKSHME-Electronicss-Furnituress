@@ -13,7 +13,8 @@ import {
     X,
     Home,
     Info,
-    Phone
+    Phone,
+    Mail
 } from "lucide-react";
 
 // Import admin page components
@@ -21,6 +22,7 @@ import DashboardHome from "./Admin_pages/Dashboard/DashboardHome";
 import Products from "./Admin_pages/Products/Products";
 import Orders from "./Admin_pages/Order/Orders";
 import Customers from "./Admin_pages/Customer/Customers";
+import Subscribers from "./Admin_pages/Subscribers/Subscribers";
 import EditHomeContent from "./Admin_pages/Home/EditHomeContent";
 import EditAboutContent from "./Admin_pages/About/EditAboutContent";
 import EditContactContent from "./Admin_pages/Contact/EditContactContent";
@@ -36,22 +38,22 @@ const AdminDashboard = () => {
         // Use onAuthStateChanged to wait for Firebase Auth to initialize
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             if (currentUser) {
-                // Get role from localStorage
+                // Get stored user data from localStorage (may have updated photoURL from Cloudinary)
                 const storedUser = localStorage.getItem("user");
-                const userRole = storedUser ? JSON.parse(storedUser).role : "user";
+                const storedUserData = storedUser ? JSON.parse(storedUser) : {};
 
-                // Create updated user object with fresh data from Firebase
+                // Create updated user object - prioritize localStorage photoURL (Cloudinary) over Firebase Auth
                 const updatedUser = {
                     uid: currentUser.uid,
                     email: currentUser.email,
-                    displayName: currentUser.displayName || "User",
-                    photoURL: currentUser.photoURL || null,
-                    role: userRole
+                    displayName: storedUserData.displayName || currentUser.displayName || "User",
+                    photoURL: storedUserData.photoURL || currentUser.photoURL || null,
+                    role: storedUserData.role || "user"
                 };
 
                 // Debug log
                 console.log("AdminDashboard - User synced:", updatedUser);
-                console.log("PhotoURL:", currentUser.photoURL);
+                console.log("PhotoURL (prioritized from localStorage):", updatedUser.photoURL);
 
                 // Update localStorage and state
                 localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -106,6 +108,7 @@ const AdminDashboard = () => {
         { id: "products", label: "Products", icon: Package },
         { id: "orders", label: "Orders", icon: ShoppingCart },
         { id: "customers", label: "Customers", icon: Users },
+        { id: "subscribers", label: "Subscribers", icon: Mail },
         { id: "home-content", label: "Home Page", icon: Home },
         { id: "about-content", label: "About Page", icon: Info },
         { id: "contact-content", label: "Contact Page", icon: Phone },
@@ -122,6 +125,8 @@ const AdminDashboard = () => {
                 return <Orders />;
             case "customers":
                 return <Customers />;
+            case "subscribers":
+                return <Subscribers />;
             case "home-content":
                 return <EditHomeContent />;
             case "about-content":

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     Zap,
     Sofa,
@@ -13,9 +13,16 @@ import {
     Shield,
     Truck,
     ChevronRight,
+    Loader2,
+    CheckCircle,
 } from "lucide-react";
+import API_URL from "../../config/api";
 
 const Footer = () => {
+    const [email, setEmail] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState({ type: "", text: "" });
+
     const quickLinks = [
         "About Us",
         "Contact Us",
@@ -50,6 +57,42 @@ const Footer = () => {
         { icon: Youtube, label: "YouTube" },
     ];
 
+    const handleSubscribe = async (e) => {
+        e.preventDefault();
+
+        if (!email) {
+            setMessage({ type: "error", text: "Please enter your email address" });
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setMessage({ type: "", text: "" });
+
+            const response = await fetch(`${API_URL}/api/newsletter/subscribe`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                setMessage({ type: "success", text: data.message });
+                setEmail("");
+            } else {
+                setMessage({ type: "error", text: data.message });
+            }
+        } catch (error) {
+            console.error("Subscription error:", error);
+            setMessage({ type: "error", text: "Failed to subscribe. Please try again." });
+        } finally {
+            setLoading(false);
+            // Clear message after 5 seconds
+            setTimeout(() => setMessage({ type: "", text: "" }), 5000);
+        }
+    };
+
     return (
         <footer className="bg-gray-900 text-gray-300">
 
@@ -65,16 +108,39 @@ const Footer = () => {
                         </p>
                     </div>
 
-                    <div className="flex w-full lg:w-auto gap-3">
-                        <input
-                            type="email"
-                            placeholder="Enter your email"
-                            className="flex-1 lg:w-80 px-4 py-3 rounded-lg bg-gray-700 text-gray-100 placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-gray-500"
-                        />
-                        <button className="px-6 py-3 bg-gray-900 text-gray-100 rounded-lg font-semibold hover:bg-gray-700 transition flex items-center gap-1">
-                            Subscribe <ChevronRight size={18} />
-                        </button>
-                    </div>
+                    <form onSubmit={handleSubscribe} className="flex flex-col w-full lg:w-auto gap-2">
+                        <div className="flex gap-3">
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="Enter your email"
+                                className="flex-1 lg:w-80 px-4 py-3 rounded-lg bg-gray-700 text-gray-100 placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-gray-500"
+                            />
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="px-6 py-3 bg-gray-900 text-gray-100 rounded-lg font-semibold hover:bg-gray-700 transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        Subscribing...
+                                    </>
+                                ) : (
+                                    <>
+                                        Subscribe <ChevronRight size={18} />
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                        {message.text && (
+                            <p className={`text-sm flex items-center gap-1 ${message.type === "success" ? "text-green-400" : "text-red-400"}`}>
+                                {message.type === "success" && <CheckCircle size={14} />}
+                                {message.text}
+                            </p>
+                        )}
+                    </form>
                 </div>
             </div>
 

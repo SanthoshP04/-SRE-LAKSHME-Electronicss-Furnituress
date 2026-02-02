@@ -42,75 +42,96 @@ const MostSellingProducts = () => {
     useEffect(() => {
         const fetchMostSellingProducts = async () => {
             try {
-                // Get all orders
-                const ordersRef = collection(db, "orders");
-                const ordersSnapshot = await getDocs(ordersRef);
+                // Try to get all orders (may fail due to permissions)
+                let productSalesCount = {};
+                let hasOrderData = false;
 
-                // Count product sales from order items
-                const productSalesCount = {};
+                try {
+                    const ordersRef = collection(db, "orders");
+                    const ordersSnapshot = await getDocs(ordersRef);
+                    console.log("Orders fetched:", ordersSnapshot.size);
 
-                ordersSnapshot.docs.forEach((orderDoc) => {
-                    const orderData = orderDoc.data();
-                    const items = orderData.items || [];
+                    // Count product sales from order items
+                    ordersSnapshot.docs.forEach((orderDoc) => {
+                        const orderData = orderDoc.data();
+                        const items = orderData.items || [];
 
-                    items.forEach((item) => {
-                        const productId = item.productId;
-                        const quantity = item.quantity || 1;
+                        items.forEach((item) => {
+                            const productId = item.productId;
+                            const quantity = item.quantity || 1;
 
-                        if (productId) {
-                            productSalesCount[productId] =
-                                (productSalesCount[productId] || 0) + quantity;
-                        }
+                            if (productId) {
+                                productSalesCount[productId] =
+                                    (productSalesCount[productId] || 0) + quantity;
+                            }
+                        });
                     });
-                });
 
-                // Sort products by sales count
-                const sortedProductIds = Object.entries(productSalesCount)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 8)
-                    .map(([productId]) => productId);
-
-                // Fetch product details for top selling products
-                const productPromises = sortedProductIds.map((id) =>
-                    getProductById(id)
-                );
-                const productDetails = await Promise.all(productPromises);
-
-                // Filter out null products and add sales count
-                const validProducts = productDetails
-                    .filter((p) => p !== null)
-                    .map((p) => ({
-                        ...p,
-                        salesCount: productSalesCount[p.id] || 0,
-                    }));
-
-                // If we have less than 8 products from orders, get remaining from products collection
-                if (validProducts.length < 8) {
-                    const productsRef = collection(db, "products");
-                    const q = query(productsRef, orderBy("createdAt", "desc"), limit(8));
-                    const productsSnapshot = await getDocs(q);
-
-                    const allProducts = productsSnapshot.docs.map((doc) => ({
-                        id: doc.id,
-                        ...doc.data(),
-                        salesCount: productSalesCount[doc.id] || 0,
-                    }));
-
-                    // Add products that are not already in validProducts
-                    const existingIds = new Set(validProducts.map((p) => p.id));
-                    const additionalProducts = allProducts
-                        .filter((p) => !existingIds.has(p.id))
-                        .slice(0, 8 - validProducts.length);
-
-                    setProducts([...validProducts, ...additionalProducts]);
-                    // Fetch review stats
-                    await fetchReviewStats([...validProducts, ...additionalProducts]);
-                } else {
-                    setProducts(validProducts);
-                    await fetchReviewStats(validProducts);
+                    hasOrderData = Object.keys(productSalesCount).length > 0;
+                } catch (orderError) {
+                    console.warn("Could not fetch orders (permission denied), falling back to products:", orderError.message);
                 }
+
+                // If we have order data, sort products by sales count
+                if (hasOrderData) {
+                    const sortedProductIds = Object.entries(productSalesCount)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 8)
+                        .map(([productId]) => productId);
+
+                    // Fetch product details for top selling products
+                    const productPromises = sortedProductIds.map((id) =>
+                        getProductById(id)
+                    );
+                    const productDetails = await Promise.all(productPromises);
+
+                    // Filter out null products and add sales count
+                    const validProducts = productDetails
+                        .filter((p) => p !== null)
+                        .map((p) => ({
+                            ...p,
+                            salesCount: productSalesCount[p.id] || 0,
+                        }));
+
+                    if (validProducts.length >= 4) {
+                        setProducts(validProducts);
+                        await fetchReviewStats(validProducts);
+                        return;
+                    }
+                }
+
+                // Fallback: Get products directly from products collection
+                console.log("Fetching products from products collection...");
+                const productsRef = collection(db, "products");
+                const q = query(productsRef, orderBy("createdAt", "desc"), limit(8));
+                const productsSnapshot = await getDocs(q);
+
+                const allProducts = productsSnapshot.docs.map((doc) => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    salesCount: productSalesCount[doc.id] || 0,
+                }));
+
+                console.log("Products fetched:", allProducts.length);
+                setProducts(allProducts);
+                await fetchReviewStats(allProducts);
+
             } catch (error) {
                 console.error("Error fetching most selling products:", error);
+                // Even on error, try to show some products
+                try {
+                    const productsRef = collection(db, "products");
+                    const q = query(productsRef, limit(8));
+                    const productsSnapshot = await getDocs(q);
+                    const fallbackProducts = productsSnapshot.docs.map((doc) => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        salesCount: 0,
+                    }));
+                    setProducts(fallbackProducts);
+                } catch (fallbackError) {
+                    console.error("Fallback also failed:", fallbackError);
+                }
             } finally {
                 setLoading(false);
             }

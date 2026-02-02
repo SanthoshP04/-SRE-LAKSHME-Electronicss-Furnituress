@@ -3,6 +3,7 @@ import { ArrowLeft, Save, Loader2, X, Upload, Link, Image as ImageIcon } from "l
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "../../../firebase/firebaseConfig";
 import { updateProduct, getProductById } from "../../../firebase/firebaseServices";
+import API_URL from "../../../config/api";
 
 const EditProducts = ({ productId, onBack, onSuccess }) => {
     const [saving, setSaving] = useState(false);
@@ -26,6 +27,7 @@ const EditProducts = ({ productId, onBack, onSuccess }) => {
     const [showUrlInput, setShowUrlInput] = useState(false);
     const [urlInput, setUrlInput] = useState("");
     const [addingToMain, setAddingToMain] = useState(true);
+    const [originalProductPrice, setOriginalProductPrice] = useState(null);
 
     // Fetch product data
     useEffect(() => {
@@ -51,6 +53,8 @@ const EditProducts = ({ productId, onBack, onSuccess }) => {
                     });
                     setMainImage(product.imageUrl || "");
                     setThumbnailImages(product.thumbnails || []);
+                    // Store original price for price drop detection
+                    setOriginalProductPrice(product.price || 0);
                 }
             } catch (error) {
                 console.error("Error fetching product:", error);
@@ -120,9 +124,10 @@ const EditProducts = ({ productId, onBack, onSuccess }) => {
         setSaving(true);
 
         try {
+            const newPrice = Number(formData.price);
             const productData = {
                 ...formData,
-                price: Number(formData.price),
+                price: newPrice,
                 originalPrice: formData.originalPrice ? Number(formData.originalPrice) : null,
                 stock: Number(formData.stock) || 0,
                 imageUrl: mainImage,
@@ -131,6 +136,29 @@ const EditProducts = ({ productId, onBack, onSuccess }) => {
             };
 
             await updateProduct(productId, productData);
+
+            // Check if price was reduced and send notifications
+            if (originalProductPrice && newPrice < originalProductPrice) {
+                try {
+                    const response = await fetch(`${API_URL}/api/notify-price-drop`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            productId: productId,
+                            productName: formData.name,
+                            productImage: mainImage,
+                            oldPrice: originalProductPrice,
+                            newPrice: newPrice
+                        })
+                    });
+                    const result = await response.json();
+                    if (result.success && result.notifiedCount > 0) {
+                        alert(`Product updated! 📧 Price drop notification sent to ${result.notifiedCount} user(s) who have this in their wishlist.`);
+                    }
+                } catch (notifyError) {
+                    console.error('Error sending price drop notifications:', notifyError);
+                }
+            }
 
             if (onSuccess) onSuccess();
             if (onBack) onBack();

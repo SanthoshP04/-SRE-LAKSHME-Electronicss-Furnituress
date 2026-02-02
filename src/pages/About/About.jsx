@@ -55,7 +55,23 @@ const About = () => {
     // Auth listener
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser || null);
+            if (currentUser) {
+                // Get stored user data from localStorage (may have updated photoURL from Cloudinary)
+                const storedUser = localStorage.getItem("user");
+                const storedUserData = storedUser ? JSON.parse(storedUser) : {};
+
+                // Create user object - prioritize localStorage photoURL (Cloudinary) over Firebase Auth
+                const updatedUser = {
+                    uid: currentUser.uid,
+                    email: currentUser.email,
+                    displayName: storedUserData.displayName || currentUser.displayName || "User",
+                    photoURL: storedUserData.photoURL || currentUser.photoURL || null,
+                    role: storedUserData.role || "user"
+                };
+                setUser(updatedUser);
+            } else {
+                setUser(null);
+            }
         });
         return () => unsub();
     }, []);

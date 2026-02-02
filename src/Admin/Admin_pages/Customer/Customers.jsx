@@ -47,7 +47,8 @@ const Customers = () => {
                             year: "numeric"
                         }) || "N/A",
                         status: status,
-                        avatar: (userData.displayName || userData.email || "U").substring(0, 2).toUpperCase()
+                        avatar: (userData.displayName || userData.email || "U").substring(0, 2).toUpperCase(),
+                        photoURL: userData.photoURL || null
                     };
                 })
             );
@@ -159,7 +160,22 @@ const Customers = () => {
                         <div key={customer.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition">
                             <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-12 h-12 ${getAvatarColor(customer.name)} rounded-full flex items-center justify-center text-white font-bold`}>
+                                    {customer.photoURL ? (
+                                        <img
+                                            src={customer.photoURL}
+                                            alt={customer.name}
+                                            className="w-12 h-12 rounded-full object-cover border-2 border-slate-200"
+                                            referrerPolicy="no-referrer"
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                e.target.nextSibling.style.display = 'flex';
+                                            }}
+                                        />
+                                    ) : null}
+                                    <div
+                                        className={`w-12 h-12 ${getAvatarColor(customer.name)} rounded-full flex items-center justify-center text-white font-bold`}
+                                        style={{ display: customer.photoURL ? 'none' : 'flex' }}
+                                    >
                                         {customer.avatar}
                                     </div>
                                     <div>

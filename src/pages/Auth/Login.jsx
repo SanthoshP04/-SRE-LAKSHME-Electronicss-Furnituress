@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
-import { signInWithEmailAndPassword, signInWithPopup, sendEmailVerification } from "firebase/auth";
+import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db, googleProvider } from "../../firebase/firebaseConfig";
+import API_URL from "../../config/api";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -44,20 +45,47 @@ const Login = () => {
     return newErrors;
   };
 
-  // ---------------- RESEND VERIFICATION EMAIL ----------------
+  // Send OTP via backend
+  const sendOTP = async (email, fullName, uid = null) => {
+    const response = await fetch(`${API_URL}/api/send-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, fullName, uid })
+    });
+    return response.json();
+  };
+
+  // ---------------- RESEND VERIFICATION ----------------
   const handleResendVerification = async () => {
     if (!unverifiedUser) return;
 
     try {
       setResending(true);
-      await sendEmailVerification(unverifiedUser, {
-        url: window.location.origin + '/login',
-        handleCodeInApp: false
-      });
-      alert("Verification email sent! Please check your inbox.");
+
+      // Get user data from Firestore for fullName
+      const userDocRef = doc(db, "users", unverifiedUser.uid);
+      const userDoc = await getDoc(userDocRef);
+      const userData = userDoc.exists() ? userDoc.data() : {};
+
+      // Pass uid to ensure backend can find the correct user document
+      const result = await sendOTP(unverifiedUser.email, userData.fullName || "User", unverifiedUser.uid);
+
+      if (result.success) {
+        // Redirect to OTP page with uid in state
+        navigate("/verify-otp", {
+          replace: true,
+          state: {
+            email: unverifiedUser.email,
+            fullName: userData.fullName || "User",
+            uid: unverifiedUser.uid
+          }
+        });
+      } else {
+        alert("Failed to send verification code. Please try again.");
+      }
     } catch (error) {
-      console.error("Error resending verification email:", error);
-      alert("Failed to send verification email. Please try again.");
+      console.error("Error sending OTP:", error);
+      alert("Failed to send verification code. Please try again.");
     } finally {
       setResending(false);
     }
@@ -82,11 +110,9 @@ const Login = () => {
       let existingUserData = null;
 
       if (userDoc.exists()) {
-        // Existing user - get their role
         existingUserData = userDoc.data();
         userRole = existingUserData.role || "user";
 
-        // Update photoURL and provider if needed
         await setDoc(userDocRef, {
           ...existingUserData,
           photoURL: user.photoURL || existingUserData.photoURL || null,
@@ -94,19 +120,16 @@ const Login = () => {
           lastLogin: serverTimestamp()
         }, { merge: true });
       } else {
-        // Check if account exists with same email (different auth method)
         const { collection, query, where, getDocs } = await import("firebase/firestore");
         const usersRef = collection(db, "users");
         const emailQuery = query(usersRef, where("email", "==", user.email));
         const emailSnapshot = await getDocs(emailQuery);
 
         if (!emailSnapshot.empty) {
-          // User exists with same email but different auth method
           const existingDoc = emailSnapshot.docs[0];
           existingUserData = existingDoc.data();
           userRole = existingUserData.role || "user";
 
-          // Update existing document with Google auth info
           await setDoc(userDocRef, {
             ...existingUserData,
             uid: user.uid,
@@ -115,7 +138,6 @@ const Login = () => {
             lastLogin: serverTimestamp()
           });
         } else {
-          // Completely new user - create Firestore document
           await setDoc(userDocRef, {
             uid: user.uid,
             fullName: user.displayName || "User",
@@ -124,20 +146,9 @@ const Login = () => {
             photoURL: user.photoURL || null,
             provider: "google",
             createdAt: serverTimestamp(),
-            role: "user"
+            role: "user",
+            customEmailVerified: false
           });
-        }
-      }
-
-      // Sync Firebase email verification to our custom field
-      // If Firebase says email is verified, update our custom field
-      if (user.emailVerified) {
-        const currentUserDoc = await getDoc(userDocRef);
-        const currentUserData = currentUserDoc.data();
-        if (!currentUserData?.customEmailVerified) {
-          await setDoc(userDocRef, {
-            customEmailVerified: true
-          }, { merge: true });
         }
       }
 
@@ -147,23 +158,22 @@ const Login = () => {
       const isCustomVerified = verifiedUserData?.customEmailVerified || false;
 
       if (!isCustomVerified) {
-        setUnverifiedUser(user);
+        // Send OTP
+        await sendOTP(user.email, user.displayName || "User");
+
         await auth.signOut();
-        setErrors({
-          general: "Please verify your email before logging in. Check your inbox (and spam folder) for the verification link."
+
+        navigate("/verify-otp", {
+          replace: true,
+          state: {
+            email: user.email,
+            fullName: user.displayName || "User"
+          }
         });
-        setLoading(false);
         return;
       }
 
-      // Debug: Check what Google gives us
-      console.log("=== GOOGLE SIGN-IN DEBUG ===");
-      console.log("User object from Google:", user);
-      console.log("PhotoURL from Google:", user.photoURL);
-      console.log("DisplayName from Google:", user.displayName);
-      console.log("Email from Google:", user.email);
-
-      // Store token and user info
+      // Email is verified - proceed with login
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify({
         uid: user.uid,
@@ -173,15 +183,6 @@ const Login = () => {
         role: userRole
       }));
 
-      console.log("Saved to localStorage:", {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || "User",
-        photoURL: user.photoURL || null,
-        role: userRole
-      });
-
-      // Redirect based on role
       if (userRole === "admin") {
         navigate("/admin-home", { replace: true });
       } else {
@@ -226,26 +227,12 @@ const Login = () => {
     try {
       setLoading(true);
 
-      // Firebase Authentication
       const userCredential = await signInWithEmailAndPassword(
         auth,
         formData.email,
         formData.password
       );
       const user = userCredential.user;
-
-      // Sync Firebase email verification to our custom field
-      // If Firebase says email is verified, update our custom field
-      if (user.emailVerified) {
-        const userDocRef = doc(db, "users", user.uid);
-        const currentUserDoc = await getDoc(userDocRef);
-        const currentUserData = currentUserDoc.data();
-        if (currentUserData && !currentUserData?.customEmailVerified) {
-          await setDoc(userDocRef, {
-            customEmailVerified: true
-          }, { merge: true });
-        }
-      }
 
       // Check our CUSTOM email verification status from Firestore
       const userDocRef = doc(db, "users", user.uid);
@@ -257,18 +244,15 @@ const Login = () => {
         setUnverifiedUser(user);
         await auth.signOut();
         setErrors({
-          general: "Please verify your email before logging in. Check your inbox (and spam folder) for the verification link."
+          general: "Please verify your email before logging in. Click 'Verify Email' to receive a verification code."
         });
         setLoading(false);
         return;
       }
 
       const token = await user.getIdToken();
-
-      // Fetch user role from Firestore (reusing userData from verification check above)
       const userRole = userData.role || "user";
 
-      // Store token and user info
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify({
         uid: user.uid,
@@ -278,7 +262,6 @@ const Login = () => {
         role: userRole
       }));
 
-      // Redirect based on role
       if (userRole === "admin") {
         navigate("/admin-home", { replace: true });
       } else {
@@ -286,7 +269,6 @@ const Login = () => {
       }
 
     } catch (error) {
-      // Handle Firebase auth errors
       let errorMessage = "Login failed";
       switch (error.code) {
         case "auth/user-not-found":
@@ -338,7 +320,7 @@ const Login = () => {
                 disabled={resending}
                 className="mt-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 underline disabled:opacity-50"
               >
-                {resending ? "Sending..." : "Resend Verification Email"}
+                {resending ? "Sending..." : "Verify Email"}
               </button>
             )}
           </div>
@@ -418,7 +400,7 @@ const Login = () => {
             </label>
             <button
               type="button"
-              className="font-medium text-white hover:underline"
+              className="font-medium text-indigo-600 hover:underline"
             >
               Forgot password?
             </button>
@@ -462,10 +444,10 @@ const Login = () => {
 
         {/* FOOTER */}
         <p className="mt-6 text-center text-sm text-gray-500">
-          Don’t have an account?{" "}
+          Don't have an account?{" "}
           <button
             onClick={() => navigate("/register")}
-            className="font-medium text-white hover:underline"
+            className="font-medium text-indigo-600 hover:underline"
           >
             Sign up
           </button>

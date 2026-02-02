@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut, onAuthStateChanged } from "firebase/auth";
-import { auth } from "../../firebase/firebaseConfig";
+import { auth, db } from "../../firebase/firebaseConfig";
+import { doc, updateDoc } from "firebase/firestore";
 import {
     User,
     Package,
@@ -16,11 +17,13 @@ import {
     X,
     Calendar,
     CreditCard,
-    Truck
+    Truck,
+    Camera
 } from "lucide-react";
 import Navbar from "../Home/Navbar";
 import Footer from "../Home/Footer";
 import { getUserOrders, getUserAddresses, updateUserProfile, getUserProfile, getOrderById, addAddress, updateAddress } from "../../firebase/firebaseServices";
+import API_URL from "../../config/api";
 
 const Profile = () => {
     const navigate = useNavigate();
@@ -50,6 +53,11 @@ const Profile = () => {
         phone: ""
     });
 
+    // Profile photo upload states
+    const [photoPreview, setPhotoPreview] = useState(null);
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
+    const fileInputRef = useRef(null);
+
     // Get user from localStorage OR Firebase Auth
     const [user, setUser] = useState(null);
 
@@ -57,22 +65,22 @@ const Profile = () => {
         // Use onAuthStateChanged to wait for Firebase Auth to initialize
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             if (currentUser) {
-                // Get role from localStorage
+                // Get stored user data from localStorage (may have updated photoURL from Cloudinary)
                 const storedUser = localStorage.getItem("user");
-                const userRole = storedUser ? JSON.parse(storedUser).role : "user";
+                const storedUserData = storedUser ? JSON.parse(storedUser) : {};
 
-                // Create updated user object with fresh data from Firebase
+                // Create updated user object - prioritize localStorage photoURL (Cloudinary) over Firebase Auth
                 const updatedUser = {
                     uid: currentUser.uid,
                     email: currentUser.email,
-                    displayName: currentUser.displayName || "User",
-                    photoURL: currentUser.photoURL || null,
-                    role: userRole
+                    displayName: storedUserData.displayName || currentUser.displayName || "User",
+                    photoURL: storedUserData.photoURL || currentUser.photoURL || null,
+                    role: storedUserData.role || "user"
                 };
 
                 // Debug log
                 console.log("Profile - User synced:", updatedUser);
-                console.log("PhotoURL:", currentUser.photoURL);
+                console.log("PhotoURL (prioritized from localStorage):", updatedUser.photoURL);
 
                 // Update localStorage and state
                 localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -174,16 +182,96 @@ const Profile = () => {
         setCartCount(cart.length);
     };
 
+    // Handle photo file selection
+    const handlePhotoChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Validate file type - accept any image
+        if (!file.type.startsWith('image/')) {
+            alert("❌ Please select a valid image file");
+            return;
+        }
+
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert("❌ Image size should be less than 5MB");
+            return;
+        }
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setPhotoPreview(reader.result);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // Upload photo to Cloudinary via backend API
+    const handleUploadPhoto = async () => {
+        const file = fileInputRef.current?.files?.[0];
+        if (!file || !user?.uid) return null;
+
+        try {
+            setUploadingPhoto(true);
+
+            // Create FormData for file upload
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('userId', user.uid);
+
+            // Upload to backend which handles Cloudinary upload
+            const response = await fetch(`${API_URL}/api/upload/profile-image`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to upload image');
+            }
+
+            console.log("✅ Photo uploaded to Cloudinary:", data.photoURL);
+            return data.photoURL;
+        } catch (error) {
+            console.error("Error uploading photo:", error);
+            throw error;
+        } finally {
+            setUploadingPhoto(false);
+        }
+    };
+
     const handleSaveProfile = async () => {
         setSaving(true);
         try {
             if (user?.uid) {
+                let photoURL = user.photoURL;
+
+                // Upload new photo if selected
+                if (photoPreview && fileInputRef.current?.files?.[0]) {
+                    photoURL = await handleUploadPhoto();
+                }
+
                 // Save with both fullName and displayName for consistency
-                await updateUserProfile(user.uid, {
+                const updateData = {
                     fullName: profileData.displayName,
                     displayName: profileData.displayName,
                     phone: profileData.phone
-                });
+                };
+
+                // Add photoURL if we have one
+                if (photoURL) {
+                    updateData.photoURL = photoURL;
+                }
+
+                await updateUserProfile(user.uid, updateData);
+
+                // Also update the users collection directly for photoURL
+                if (photoURL) {
+                    const userDocRef = doc(db, "users", user.uid);
+                    await updateDoc(userDocRef, { photoURL: photoURL });
+                }
 
                 // Update all addresses with new phone number
                 if (profileData.phone && addresses.length > 0) {
@@ -194,12 +282,23 @@ const Profile = () => {
                 }
 
                 // Update localStorage
-                const updatedUser = { ...user, displayName: profileData.displayName, phone: profileData.phone };
+                const updatedUser = {
+                    ...user,
+                    displayName: profileData.displayName,
+                    phone: profileData.phone,
+                    photoURL: photoURL || user.photoURL
+                };
                 localStorage.setItem("user", JSON.stringify(updatedUser));
                 setUser(updatedUser);
 
+                // Clear preview
+                setPhotoPreview(null);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = "";
+                }
+
                 // Show success message with proper UI feedback
-                alert("✅ Profile and addresses updated successfully!");
+                alert("✅ Profile updated successfully!");
 
                 // Reload data to reflect changes
                 await loadData();
@@ -359,23 +458,39 @@ const Profile = () => {
                         <div className="lg:col-span-1">
                             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
                                 <div className="flex items-center gap-4 mb-6">
-                                    {user.photoURL ? (
-                                        <img
-                                            src={user.photoURL}
-                                            alt={user.displayName || "User"}
-                                            className="w-16 h-16 rounded-full object-cover border-2 border-gray-700"
-                                            onError={(e) => {
-                                                e.target.style.display = 'none';
-                                                e.target.nextSibling.style.display = 'flex';
-                                            }}
-                                        />
-                                    ) : null}
+                                    {/* Profile Photo with WhatsApp-style edit icon */}
                                     <div
-                                        className="w-16 h-16 bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center text-white text-2xl font-bold"
-                                        style={{ display: user.photoURL ? 'none' : 'flex' }}
+                                        className="relative cursor-pointer group"
+                                        onClick={() => {
+                                            setActiveTab("settings");
+                                            setTimeout(() => fileInputRef.current?.click(), 100);
+                                        }}
+                                        title="Change profile photo"
                                     >
-                                        {user.email?.[0]?.toUpperCase() || "U"}
+                                        {user.photoURL ? (
+                                            <img
+                                                src={user.photoURL}
+                                                alt={user.displayName || "User"}
+                                                className="w-16 h-16 rounded-full object-cover border-2 border-gray-300 group-hover:border-gray-700 transition"
+                                                onError={(e) => {
+                                                    e.target.style.display = 'none';
+                                                    e.target.nextSibling.style.display = 'flex';
+                                                }}
+                                            />
+                                        ) : null}
+                                        <div
+                                            className="w-16 h-16 bg-gradient-to-br from-gray-700 to-gray-800 rounded-full flex items-center justify-center text-white text-2xl font-bold"
+                                            style={{ display: user.photoURL ? 'none' : 'flex' }}
+                                        >
+                                            {user.email?.[0]?.toUpperCase() || "U"}
+                                        </div>
+
+                                        {/* WhatsApp-style camera icon - positioned at bottom right */}
+                                        <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center border-2 border-white shadow-md group-hover:bg-gray-900 transition">
+                                            <Camera size={12} className="text-white" />
+                                        </div>
                                     </div>
+
                                     <div className="flex-1 min-w-0">
                                         <h2 className="font-bold text-gray-800 text-lg truncate">{user.displayName || "User"}</h2>
                                         <p className="text-sm text-gray-600 truncate" title={user.email}>{user.email}</p>
@@ -513,23 +628,69 @@ const Profile = () => {
                                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
                                             <h3 className="text-lg font-bold text-gray-800 mb-4">Account Settings</h3>
 
-                                            {/* Profile Photo Section */}
-                                            {user.photoURL && (
-                                                <div className="mb-6 pb-6 border-b border-gray-200">
-                                                    <label className="block text-sm font-medium text-gray-700 mb-3">Profile Photo</label>
-                                                    <div className="flex items-center gap-4">
-                                                        <img
-                                                            src={user.photoURL}
-                                                            alt={user.displayName || "User"}
-                                                            className="w-20 h-20 rounded-full object-cover border-2 border-gray-700"
-                                                        />
-                                                        <div className="flex-1">
-                                                            <p className="text-sm text-gray-600">Your Google profile photo</p>
-                                                            <p className="text-xs text-gray-400 mt-1">Photo from your Google account</p>
+                                            {/* Profile Photo Upload Section */}
+                                            <div className="mb-6 pb-6 border-b border-gray-200">
+                                                <label className="block text-sm font-medium text-gray-700 mb-3">Profile Photo</label>
+                                                <div className="flex items-center gap-4">
+                                                    {/* Photo Display/Upload Area */}
+                                                    <div
+                                                        className="relative cursor-pointer group"
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                    >
+                                                        {/* Display preview, user photo, or placeholder */}
+                                                        {(photoPreview || user.photoURL) ? (
+                                                            <img
+                                                                src={photoPreview || user.photoURL}
+                                                                alt={user.displayName || "User"}
+                                                                className="w-24 h-24 rounded-full object-cover border-2 border-gray-300 group-hover:border-gray-700 transition"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center text-white text-3xl font-bold group-hover:from-gray-800 group-hover:to-gray-900 transition">
+                                                                {user.email?.[0]?.toUpperCase() || "U"}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Camera overlay */}
+                                                        <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                                                            {uploadingPhoto ? (
+                                                                <Loader2 size={24} className="text-white animate-spin" />
+                                                            ) : (
+                                                                <Camera size={24} className="text-white" />
+                                                            )}
                                                         </div>
                                                     </div>
+
+                                                    {/* Hidden file input */}
+                                                    <input
+                                                        type="file"
+                                                        ref={fileInputRef}
+                                                        onChange={handlePhotoChange}
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                    />
+
+                                                    {/* Upload instructions */}
+                                                    <div className="flex-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fileInputRef.current?.click()}
+                                                            disabled={uploadingPhoto}
+                                                            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition flex items-center gap-2 disabled:opacity-50"
+                                                        >
+                                                            <Camera size={16} />
+                                                            {photoPreview ? "Change Photo" : "Upload Photo"}
+                                                        </button>
+                                                        <p className="text-xs text-gray-400 mt-2">
+                                                            JPEG, PNG, GIF or WebP. Max 5MB.
+                                                        </p>
+                                                        {photoPreview && (
+                                                            <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                                                                ✓ New photo selected. Click "Save Changes" to upload.
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            )}
+                                            </div>
 
                                             <div className="space-y-4">
                                                 <div>
@@ -563,11 +724,11 @@ const Profile = () => {
                                                 </div>
                                                 <button
                                                     onClick={handleSaveProfile}
-                                                    disabled={saving}
+                                                    disabled={saving || uploadingPhoto}
                                                     className="px-6 py-3 bg-gray-800 text-white rounded-xl font-semibold hover:bg-gray-900 transition flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                                                 >
-                                                    {saving && <Loader2 size={18} className="animate-spin" />}
-                                                    Save Changes
+                                                    {(saving || uploadingPhoto) && <Loader2 size={18} className="animate-spin" />}
+                                                    {uploadingPhoto ? "Uploading Photo..." : "Save Changes"}
                                                 </button>
                                             </div>
                                         </div>
