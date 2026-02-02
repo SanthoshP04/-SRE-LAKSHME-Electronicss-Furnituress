@@ -68,18 +68,18 @@ const Register = () => {
 
             let userRole = "user";
             let existingUserData = null;
-            let isNewUser = false;
 
             if (userDoc.exists()) {
                 // Existing user - get their role
                 existingUserData = userDoc.data();
                 userRole = existingUserData.role || "user";
 
-                // Update photoURL and provider if needed
+                // Update photoURL and provider - Google users are automatically verified
                 await setDoc(userDocRef, {
                     ...existingUserData,
                     photoURL: user.photoURL || existingUserData.photoURL || null,
                     provider: existingUserData.provider === "google" ? "google" : "email,google",
+                    customEmailVerified: true, // Google already verifies email
                     lastLogin: serverTimestamp()
                 }, { merge: true });
             } else {
@@ -101,11 +101,12 @@ const Register = () => {
                         uid: user.uid,
                         photoURL: user.photoURL || existingUserData.photoURL || null,
                         provider: "email,google",
+                        customEmailVerified: true, // Google already verifies email
                         lastLogin: serverTimestamp()
                     });
                 } else {
                     // Completely new user - create Firestore document
-                    isNewUser = true;
+                    // Google users are automatically verified - no OTP needed
                     await setDoc(userDocRef, {
                         uid: user.uid,
                         fullName: user.displayName || "User",
@@ -115,36 +116,12 @@ const Register = () => {
                         provider: "google",
                         createdAt: serverTimestamp(),
                         role: "user",
-                        customEmailVerified: false
+                        customEmailVerified: true // Google already verifies email - no OTP needed
                     });
                 }
             }
 
-            // Check our CUSTOM email verification status
-            const latestUserDoc = await getDoc(userDocRef);
-            const latestUserData = latestUserDoc.data();
-            const isCustomVerified = latestUserData?.customEmailVerified || false;
-
-            if (!isCustomVerified) {
-                // Send OTP via backend with uid
-                await sendOTP(user.email, user.displayName || "User", user.uid);
-
-                // Sign out the user
-                await auth.signOut();
-
-                // Redirect to OTP verification page with uid
-                navigate("/verify-otp", {
-                    replace: true,
-                    state: {
-                        email: user.email,
-                        fullName: user.displayName || "User",
-                        uid: user.uid
-                    }
-                });
-                return;
-            }
-
-            // Email is verified - proceed with login
+            // Google users are automatically verified - proceed directly to login
             const token = await user.getIdToken();
 
             localStorage.setItem("token", token);

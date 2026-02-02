@@ -113,10 +113,12 @@ const Login = () => {
         existingUserData = userDoc.data();
         userRole = existingUserData.role || "user";
 
+        // Update user data - Google users are automatically verified
         await setDoc(userDocRef, {
           ...existingUserData,
           photoURL: user.photoURL || existingUserData.photoURL || null,
           provider: existingUserData.provider === "google" ? "google" : "email,google",
+          customEmailVerified: true, // Google already verifies email
           lastLogin: serverTimestamp()
         }, { merge: true });
       } else {
@@ -135,9 +137,11 @@ const Login = () => {
             uid: user.uid,
             photoURL: user.photoURL || existingUserData.photoURL || null,
             provider: "email,google",
+            customEmailVerified: true, // Google already verifies email
             lastLogin: serverTimestamp()
           });
         } else {
+          // New Google user - automatically verified
           await setDoc(userDocRef, {
             uid: user.uid,
             fullName: user.displayName || "User",
@@ -147,33 +151,12 @@ const Login = () => {
             provider: "google",
             createdAt: serverTimestamp(),
             role: "user",
-            customEmailVerified: false
+            customEmailVerified: true // Google already verifies email - no OTP needed
           });
         }
       }
 
-      // Check our CUSTOM email verification status from Firestore
-      const verifiedUserDoc = await getDoc(userDocRef);
-      const verifiedUserData = verifiedUserDoc.data();
-      const isCustomVerified = verifiedUserData?.customEmailVerified || false;
-
-      if (!isCustomVerified) {
-        // Send OTP
-        await sendOTP(user.email, user.displayName || "User");
-
-        await auth.signOut();
-
-        navigate("/verify-otp", {
-          replace: true,
-          state: {
-            email: user.email,
-            fullName: user.displayName || "User"
-          }
-        });
-        return;
-      }
-
-      // Email is verified - proceed with login
+      // Google users are automatically verified - proceed directly to login
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify({
         uid: user.uid,
