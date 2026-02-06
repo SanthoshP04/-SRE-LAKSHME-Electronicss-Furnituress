@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { ShoppingCart, Search, Eye, Package, Truck, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
-import { collection, query, orderBy, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { ShoppingCart, Search, Eye, Package, Truck, CheckCircle, XCircle, Clock, Loader2, X, Calendar, CreditCard, MapPin } from "lucide-react";
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "../../../firebase/firebaseConfig";
 
 const Orders = () => {
@@ -9,6 +9,9 @@ const Orders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [updatingOrder, setUpdatingOrder] = useState(null);
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [showOrderModal, setShowOrderModal] = useState(false);
+    const [loadingOrder, setLoadingOrder] = useState(false);
 
     // Load orders from Firebase in real-time
     useEffect(() => {
@@ -51,6 +54,44 @@ const Orders = () => {
         } finally {
             setUpdatingOrder(null);
         }
+    };
+
+    const handleViewOrderDetails = async (orderId) => {
+        setLoadingOrder(true);
+        try {
+            const orderRef = doc(db, "orders", orderId);
+            const orderSnap = await getDoc(orderRef);
+            if (orderSnap.exists()) {
+                setSelectedOrder({ id: orderSnap.id, ...orderSnap.data() });
+                setShowOrderModal(true);
+            } else {
+                alert("Order not found");
+            }
+        } catch (error) {
+            console.error("Error fetching order:", error);
+            alert("Failed to load order details");
+        } finally {
+            setLoadingOrder(false);
+        }
+    };
+
+    const formatDate = (dateValue) => {
+        if (!dateValue) return "N/A";
+        let date;
+        if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+            date = dateValue.toDate();
+        } else if (typeof dateValue === 'string') {
+            date = new Date(dateValue);
+        } else if (dateValue instanceof Date) {
+            date = dateValue;
+        } else {
+            return "N/A";
+        }
+        return date.toLocaleDateString("en-IN", {
+            year: "numeric",
+            month: "short",
+            day: "numeric"
+        });
     };
 
     const filteredOrders = orders.filter(order => {
@@ -197,9 +238,14 @@ const Orders = () => {
                                                         <button
                                                             className="p-2 hover:bg-slate-100 rounded-lg transition"
                                                             title="View Order Details"
-                                                            onClick={() => alert("Order details feature coming soon")}
+                                                            onClick={() => handleViewOrderDetails(order.id)}
+                                                            disabled={loadingOrder}
                                                         >
-                                                            <Eye size={16} className="text-slate-500" />
+                                                            {loadingOrder ? (
+                                                                <Loader2 size={16} className="text-slate-500 animate-spin" />
+                                                            ) : (
+                                                                <Eye size={16} className="text-slate-500" />
+                                                            )}
                                                         </button>
                                                     </div>
                                                 </td>
@@ -219,6 +265,162 @@ const Orders = () => {
                     </>
                 )}
             </div>
+
+            {/* Order Details Modal */}
+            {showOrderModal && selectedOrder && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b border-slate-200 p-6 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xl font-bold text-slate-800">Order Details</h2>
+                                <p className="text-sm text-slate-500">Order #{selectedOrder.id.slice(-8).toUpperCase()}</p>
+                            </div>
+                            <button
+                                onClick={() => setShowOrderModal(false)}
+                                className="p-2 hover:bg-slate-100 rounded-lg transition"
+                            >
+                                <X size={24} className="text-slate-600" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-6">
+                            {/* Order Status & Date */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm text-slate-500 mb-1">Order Date</p>
+                                    <p className="font-semibold text-slate-800 flex items-center gap-2">
+                                        <Calendar size={16} />
+                                        {formatDate(selectedOrder.createdAt)}
+                                    </p>
+                                </div>
+                                <span className={`px-4 py-2 text-sm font-medium rounded-full ${getStatusConfig(selectedOrder.status).color}`}>
+                                    {selectedOrder.status || "Pending"}
+                                </span>
+                            </div>
+
+                            {/* Customer Info */}
+                            <div>
+                                <h3 className="font-semibold text-slate-800 mb-3">Customer Information</h3>
+                                <div className="bg-slate-50 rounded-lg p-4">
+                                    <p className="font-medium text-slate-800">{selectedOrder.customerName || "N/A"}</p>
+                                    <p className="text-sm text-slate-600">{selectedOrder.customerEmail || "N/A"}</p>
+                                </div>
+                            </div>
+
+                            {/* Items Ordered */}
+                            <div>
+                                <h3 className="font-semibold text-slate-800 mb-3">Items Ordered</h3>
+                                <div className="space-y-3">
+                                    {selectedOrder.items?.map((item, index) => (
+                                        <div key={index} className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg">
+                                            {item.image && (
+                                                typeof item.image === 'string' && item.image.startsWith('http') ? (
+                                                    <img src={item.image} alt={item.name} className="w-16 h-16 object-cover rounded-lg" />
+                                                ) : (
+                                                    <div className="text-4xl">{item.image}</div>
+                                                )
+                                            )}
+                                            <div className="flex-1">
+                                                <p className="font-medium text-slate-800">{item.name}</p>
+                                                <p className="text-sm text-slate-500">Qty: {item.quantity}</p>
+                                            </div>
+                                            <p className="font-semibold text-slate-800">₹{(item.price * item.quantity).toLocaleString()}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Shipping Address */}
+                            {selectedOrder.shippingAddress && (
+                                <div>
+                                    <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                                        <MapPin size={18} />
+                                        Shipping Address
+                                    </h3>
+                                    <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                                        <p className="font-medium text-slate-800 text-base">{selectedOrder.shippingAddress.fullName}</p>
+                                        <p className="text-sm text-slate-600">{selectedOrder.shippingAddress.address}</p>
+                                        {selectedOrder.shippingAddress.addressLine2 && (
+                                            <p className="text-sm text-slate-600">{selectedOrder.shippingAddress.addressLine2}</p>
+                                        )}
+                                        <p className="text-sm text-slate-600">
+                                            {selectedOrder.shippingAddress.city}, {selectedOrder.shippingAddress.state} - {selectedOrder.shippingAddress.pincode}
+                                        </p>
+                                        <div className="pt-2 border-t border-slate-200 space-y-1">
+                                            <p className="text-sm text-slate-600"><span className="font-medium text-slate-700">Phone:</span> {selectedOrder.shippingAddress.phone}</p>
+                                            {selectedOrder.shippingAddress.email && (
+                                                <p className="text-sm text-slate-600"><span className="font-medium text-slate-700">Email:</span> {selectedOrder.shippingAddress.email}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Payment Method */}
+                            <div>
+                                <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                                    <CreditCard size={18} />
+                                    Payment Method
+                                </h3>
+                                <div className="bg-slate-50 rounded-lg p-4">
+                                    <p className="text-slate-800 font-medium">
+                                        {selectedOrder.paymentMethod === 'cod' ? 'Cash on Delivery' :
+                                            selectedOrder.paymentMethod === 'upi' ? 'UPI' :
+                                                selectedOrder.paymentMethod === 'card' ? 'Credit/Debit Card' :
+                                                    selectedOrder.paymentMethod === 'netbanking' ? 'Net Banking' :
+                                                        selectedOrder.paymentMethod || "Cash on Delivery"}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Price Summary */}
+                            <div className="border-t border-slate-200 pt-4">
+                                <h3 className="font-semibold text-slate-800 mb-3">Price Summary</h3>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-slate-600">
+                                        <span>Subtotal</span>
+                                        <span>₹{selectedOrder.subtotal?.toLocaleString() || selectedOrder.total?.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-slate-600">
+                                        <span>Shipping</span>
+                                        <span>₹{selectedOrder.shipping?.toLocaleString() || 0}</span>
+                                    </div>
+                                    {selectedOrder.discount > 0 && (
+                                        <div className="flex justify-between text-green-600">
+                                            <span>Discount</span>
+                                            <span>-₹{selectedOrder.discount?.toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between text-lg font-bold text-slate-800 border-t border-slate-200 pt-2">
+                                        <span>Total</span>
+                                        <span>₹{selectedOrder.total?.toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Update Status Section */}
+                            <div className="border-t border-slate-200 pt-4">
+                                <h3 className="font-semibold text-slate-800 mb-3">Update Status</h3>
+                                <select
+                                    value={selectedOrder.status}
+                                    onChange={(e) => {
+                                        handleStatusUpdate(selectedOrder.id, e.target.value);
+                                        setSelectedOrder({ ...selectedOrder, status: e.target.value });
+                                    }}
+                                    disabled={updatingOrder === selectedOrder.id}
+                                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition bg-white"
+                                >
+                                    <option value="Pending">Pending</option>
+                                    <option value="Processing">Processing</option>
+                                    <option value="Shipped">Shipped</option>
+                                    <option value="Delivered">Delivered</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
