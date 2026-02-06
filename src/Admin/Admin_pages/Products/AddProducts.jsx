@@ -255,14 +255,15 @@ const AddProducts = ({ onBack, onSuccess }) => {
                                         </div>
                                     )}
                                     <div className="flex flex-col gap-2">
-                                        <label className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer transition-colors font-medium text-sm shadow-sm">
+                                        <label className="relative flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer transition-colors font-medium text-sm shadow-sm overflow-hidden">
                                             <Upload size={16} />
                                             Upload File
                                             <input
                                                 type="file"
                                                 accept="image/*"
                                                 onChange={(e) => handleFileUpload(e, true)}
-                                                className="hidden"
+                                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
                                             />
                                         </label>
                                         <button
@@ -297,7 +298,7 @@ const AddProducts = ({ onBack, onSuccess }) => {
                                     ))}
                                     {thumbnailImages.length < 5 && (
                                         <>
-                                            <label className="w-24 h-24 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-slate-500 hover:bg-slate-50 transition-all">
+                                            <label className="relative w-24 h-24 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-slate-500 hover:bg-slate-50 transition-all overflow-hidden">
                                                 <Upload size={20} />
                                                 <span className="text-xs mt-1 font-medium">Upload</span>
                                                 <input
@@ -305,7 +306,8 @@ const AddProducts = ({ onBack, onSuccess }) => {
                                                     accept="image/*"
                                                     multiple
                                                     onChange={(e) => handleFileUpload(e, false)}
-                                                    className="hidden"
+                                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                    style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
                                                 />
                                             </label>
                                             <button
