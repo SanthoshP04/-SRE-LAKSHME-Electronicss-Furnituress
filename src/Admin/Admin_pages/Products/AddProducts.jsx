@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft, Save, Loader2, Upload, Link, Image as ImageIcon, X } from "lucide-react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "../../../firebase/firebaseConfig";
 import { addProduct } from "../../../firebase/firebaseServices";
+import API_URL from "../../../config/api";
 
 const AddProducts = ({ onBack, onSuccess }) => {
     const [saving, setSaving] = useState(false);
@@ -25,14 +24,22 @@ const AddProducts = ({ onBack, onSuccess }) => {
     const [urlInput, setUrlInput] = useState("");
     const [addingToMain, setAddingToMain] = useState(true);
 
-    const uploadToStorage = async (file) => {
-        const timestamp = Date.now();
-        const fileName = `products/${timestamp}_${file.name}`;
-        const storageRef = ref(storage, fileName);
+    const uploadToCloudinary = async (file) => {
+        const formData = new FormData();
+        formData.append('image', file);
 
-        await uploadBytes(storageRef, file);
-        const downloadUrl = await getDownloadURL(storageRef);
-        return downloadUrl;
+        const response = await fetch(`${API_URL}/api/upload/product-image`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to upload image');
+        }
+
+        const data = await response.json();
+        return data.imageUrl;
     };
 
     const handleFileUpload = async (e, isMain = true) => {
@@ -42,7 +49,7 @@ const AddProducts = ({ onBack, onSuccess }) => {
         setUploading(true);
         try {
             for (const file of files) {
-                const url = await uploadToStorage(file);
+                const url = await uploadToCloudinary(file);
                 if (isMain) {
                     setMainImage(url);
                 } else {
@@ -56,6 +63,7 @@ const AddProducts = ({ onBack, onSuccess }) => {
             setUploading(false);
         }
     };
+
 
     const handleAddUrl = () => {
         if (!urlInput.trim()) return;
