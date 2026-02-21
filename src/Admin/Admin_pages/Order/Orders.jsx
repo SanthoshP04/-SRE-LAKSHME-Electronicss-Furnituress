@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { ShoppingCart, Search, Eye, Package, Truck, CheckCircle, XCircle, Clock, Loader2, X, Calendar, CreditCard, MapPin } from "lucide-react";
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../../firebase/firebaseConfig";
 
 const Orders = () => {
@@ -20,16 +20,25 @@ const Orders = () => {
         const q = query(ordersRef, orderBy("createdAt", "desc"));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const ordersData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                // Format date
-                date: doc.data().createdAt?.toDate().toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric"
-                }) || "N/A"
-            }));
+            const ordersData = snapshot.docs.map(doc => {
+                const data = doc.data();
+                // Safe date formatting that handles both Firestore Timestamps and JS Dates
+                let formattedDate = "N/A";
+                if (data.createdAt) {
+                    const dateObj = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+                    formattedDate = dateObj.toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric"
+                    });
+                }
+
+                return {
+                    id: doc.id,
+                    ...data,
+                    date: formattedDate
+                };
+            });
             setOrders(ordersData);
             setLoading(false);
         }, (error) => {
@@ -46,7 +55,7 @@ const Orders = () => {
             const orderRef = doc(db, "orders", orderId);
             await updateDoc(orderRef, {
                 status: newStatus,
-                updatedAt: new Date()
+                updatedAt: serverTimestamp()
             });
         } catch (error) {
             console.error("Error updating order status:", error);
@@ -116,7 +125,7 @@ const Orders = () => {
     const orderStats = [
         { label: "Total Orders", value: orders.length, color: "bg-blue-500" },
         { label: "Delivered", value: orders.filter(o => o.status === "Delivered").length, color: "bg-emerald-500" },
-        { label: "Pending", value: orders.filter(o => o.status === "Pending" || o.status === "Processing").length, color: "bg-amber-500" },
+        { label: "Active", value: orders.filter(o => ["Pending", "Processing", "Shipped"].includes(o.status)).length, color: "bg-amber-500" },
         { label: "Cancelled", value: orders.filter(o => o.status === "Cancelled").length, color: "bg-red-500" },
     ];
 

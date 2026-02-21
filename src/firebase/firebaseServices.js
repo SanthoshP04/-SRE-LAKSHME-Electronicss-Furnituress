@@ -9,7 +9,8 @@ import {
     query,
     where,
     orderBy,
-    setDoc
+    setDoc,
+    serverTimestamp
 } from "firebase/firestore";
 import { db } from "./firebaseConfig";
 
@@ -264,8 +265,8 @@ export const createOrder = async (userId, orderData) => {
             discount: orderData.discount || 0,
             total: orderData.total || 0,
             status: "Pending",
-            createdAt: new Date(),
-            updatedAt: new Date()
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
         });
         return orderRef.id;
     } catch (error) {

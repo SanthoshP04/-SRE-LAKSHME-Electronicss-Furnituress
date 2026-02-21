@@ -403,7 +403,8 @@ const Profile = () => {
         switch (status?.toLowerCase()) {
             case "delivered": return "bg-emerald-100 text-emerald-700";
             case "shipped": return "bg-blue-100 text-blue-700";
-            case "processing": return "bg-gray-100 text-gray-700";
+            case "processing": return "bg-amber-100 text-amber-700";
+            case "pending": return "bg-slate-100 text-slate-700";
             case "cancelled": return "bg-red-100 text-red-700";
             default: return "bg-slate-100 text-slate-700";
         }

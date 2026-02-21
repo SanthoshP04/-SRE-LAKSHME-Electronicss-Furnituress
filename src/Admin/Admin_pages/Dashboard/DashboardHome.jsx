@@ -50,6 +50,11 @@ const DashboardHome = () => {
                     ...doc.data()
                 }));
 
+                const safeGetDate = (val) => {
+                    if (!val) return null;
+                    return val.toDate ? val.toDate() : new Date(val);
+                };
+
                 // Calculate total revenue (excluding cancelled orders)
                 const totalRevenue = orders
                     .filter(o => o.status !== "Cancelled")
@@ -66,11 +71,11 @@ const DashboardHome = () => {
                 // Calculate growth (compare this month vs last month)
                 const now = new Date();
                 const thisMonth = orders.filter(o => {
-                    const orderDate = o.createdAt?.toDate();
+                    const orderDate = safeGetDate(o.createdAt);
                     return orderDate && orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
                 });
                 const lastMonth = orders.filter(o => {
-                    const orderDate = o.createdAt?.toDate();
+                    const orderDate = safeGetDate(o.createdAt);
                     const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1);
                     return orderDate && orderDate.getMonth() === lastMonthDate.getMonth() && orderDate.getFullYear() === lastMonthDate.getFullYear();
                 });
@@ -82,7 +87,7 @@ const DashboardHome = () => {
                 const monthlyRevenue = Array.from({ length: 12 }, (_, i) => {
                     const date = new Date(now.getFullYear(), now.getMonth() - (11 - i));
                     const monthOrders = orders.filter(o => {
-                        const orderDate = o.createdAt?.toDate();
+                        const orderDate = safeGetDate(o.createdAt);
                         return orderDate &&
                             orderDate.getMonth() === date.getMonth() &&
                             orderDate.getFullYear() === date.getFullYear() &&
